@@ -1,0 +1,31 @@
+{
+  "expo": {
+    "name": "BrainLeap MVP",
+    "slug": "brainleap-mvp",
+    "version": "1.0.0",
+    "sdkVersion": "54.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#6366f1"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.brainleap.mvp"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#6366f1"
+      },
+      "package": "com.brainleap.mvp"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
+
