@@ -1,70 +1,146 @@
-import React, { useState, forwardRef, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, PanResponder } from 'react-native';
-import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+import React, { useState, forwardRef, useRef, useEffect } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, Platform, PanResponder } from 'react-native';
+import Canvas from 'react-native-canvas';
 
 const Whiteboard = forwardRef(({ paths, onPathsChange, onClear }, ref) => {
-  const currentPathRef = useRef(null);
-  const pathsRef = useRef(paths); // Keep track of latest paths
-  const [, forceUpdate] = useState(0); // Force re-render counter
+  const canvasRef = useRef(null);
+  const isDrawingRef = useRef(false);
+  const lastPointRef = useRef({ x: 0, y: 0 });
+  const currentPathPointsRef = useRef([]); // Store all points in current stroke
+  const [containerSize, setContainerSize] = useState({ width: 400, height: 300 });
+  const isInitializedRef = useRef(false);
 
-  // Update pathsRef whenever paths change
-  pathsRef.current = paths;
+  // Log component rendering
+  console.log(`🎨 Canvas Whiteboard rendered on ${Platform.OS}`);
+  console.log(`🎨 Current paths count: ${paths ? paths.length : 0}`);
 
-  // PanResponder for touch handling (onTouch not working in this Skia version)
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => {
-        console.log('🎨 Touch START detected');
-        return true;
-      },
-      onStartShouldSetPanResponderCapture: () => {
-        console.log('🎨 Touch START CAPTURE (iOS)');
-        return true;
-      },
-      onMoveShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
-      onPanResponderGrant: (evt) => {
-        const { locationX, locationY } = evt.nativeEvent;
-        console.log('🎨 Starting new path at:', locationX, locationY);
-        console.log('🎨 Current saved paths:', pathsRef.current.length);
+  // Update canvas size when container size changes
+  useEffect(() => {
+    if (canvasRef.current && containerSize.width > 0 && containerSize.height > 0) {
+      console.log(`📏 Updating canvas size to: ${containerSize.width} x ${containerSize.height}`);
+      canvasRef.current.width = containerSize.width;
+      canvasRef.current.height = containerSize.height;
+      
+      // Reapply drawing style after resize
+      const ctx = canvasRef.current.getContext('2d');
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      
+      // Redraw all saved paths after canvas resize
+      if (paths && paths.length > 0) {
+        console.log(`🎨 Redrawing ${paths.length} saved paths`);
+        paths.forEach((pathData) => {
+          if (pathData.points && pathData.points.length > 0) {
+            // Draw path with all points
+            ctx.beginPath();
+            ctx.moveTo(pathData.points[0].x, pathData.points[0].y);
+            for (let i = 1; i < pathData.points.length; i++) {
+              ctx.lineTo(pathData.points[i].x, pathData.points[i].y);
+            }
+            ctx.stroke();
+          }
+        });
+      }
+    }
+  }, [containerSize, paths]);
+
+  // Initialize canvas
+  const handleCanvas = (canvas) => {
+    if (canvas) {
+      canvasRef.current = canvas;
+      
+      // Always update canvas size to match container
+      if (containerSize.width > 0 && containerSize.height > 0) {
+        canvas.width = containerSize.width;
+        canvas.height = containerSize.height;
         
-        const path = Skia.Path.Make();
-        path.moveTo(locationX, locationY);
-        currentPathRef.current = {
-          path,
-          color: '#000000',
-          strokeWidth: 3,
-        };
-        forceUpdate(prev => prev + 1);
-      },
-      onPanResponderMove: (evt) => {
-        const { locationX, locationY } = evt.nativeEvent;
+        // Set drawing style
+        const ctx = canvas.getContext('2d');
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         
-        if (currentPathRef.current) {
-          currentPathRef.current.path.lineTo(locationX, locationY);
-          forceUpdate(prev => prev + 1);
+        if (!isInitializedRef.current) {
+          isInitializedRef.current = true;
+          console.log('🎨 Canvas initialized!');
+          console.log(`📏 Canvas size: ${canvas.width} x ${canvas.height}`);
         }
-      },
-      onPanResponderRelease: () => {
-        console.log('🎨 Ending path, total paths will be:', pathsRef.current.length + 1);
-        
-        if (currentPathRef.current) {
-          onPathsChange([...pathsRef.current, currentPathRef.current]);
-          currentPathRef.current = null;
-          forceUpdate(prev => prev + 1);
-        }
-      },
-      onPanResponderTerminate: () => {
-        if (currentPathRef.current) {
-          onPathsChange([...pathsRef.current, currentPathRef.current]);
-          currentPathRef.current = null;
-          forceUpdate(prev => prev + 1);
-        }
-      },
-      onPanResponderTerminationRequest: () => false,
-      onShouldBlockNativeResponder: () => true,
-    })
-  ).current;
+      }
+    }
+  };
+
+  // Touch handlers
+  const handleTouchStart = (event) => {
+    console.log('✅ Canvas Touch START:', Platform.OS);
+    console.log('🎯 Touch coordinates:', event.nativeEvent.locationX, event.nativeEvent.locationY);
+    
+    isDrawingRef.current = true;
+    const point = {
+      x: event.nativeEvent.locationX,
+      y: event.nativeEvent.locationY
+    };
+    lastPointRef.current = point;
+    currentPathPointsRef.current = [point]; // Start new path with first point
+  };
+
+  const handleTouchMove = (event) => {
+    if (!isDrawingRef.current || !canvasRef.current) return;
+    
+    console.log('✅ Canvas Touch MOVE:', Platform.OS);
+    console.log('🎯 Move coordinates:', event.nativeEvent.locationX, event.nativeEvent.locationY);
+    
+    const ctx = canvasRef.current.getContext('2d');
+    const currentPoint = {
+      x: event.nativeEvent.locationX,
+      y: event.nativeEvent.locationY
+    };
+    
+    // Add point to current path
+    currentPathPointsRef.current.push(currentPoint);
+    
+    // Draw line
+    ctx.beginPath();
+    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
+    ctx.lineTo(currentPoint.x, currentPoint.y);
+    ctx.stroke();
+    
+    lastPointRef.current = currentPoint;
+  };
+
+  const handleTouchEnd = (event) => {
+    console.log('✅ Canvas Touch END:', Platform.OS);
+    
+    if (isDrawingRef.current && canvasRef.current) {
+      // Add final point if needed
+      const finalPoint = {
+        x: event.nativeEvent.locationX,
+        y: event.nativeEvent.locationY
+      };
+      
+      if (currentPathPointsRef.current.length === 0 || 
+          (currentPathPointsRef.current[currentPathPointsRef.current.length - 1].x !== finalPoint.x ||
+           currentPathPointsRef.current[currentPathPointsRef.current.length - 1].y !== finalPoint.y)) {
+        currentPathPointsRef.current.push(finalPoint);
+      }
+      
+      // Save the path with all points
+      const pathData = {
+        points: [...currentPathPointsRef.current],
+        timestamp: new Date().toISOString()
+      };
+      
+      console.log(`💾 Saving Canvas path with ${pathData.points.length} points`);
+      onPathsChange([...(paths || []), pathData]);
+      
+      // Reset current path
+      currentPathPointsRef.current = [];
+    }
+    
+    isDrawingRef.current = false;
+  };
 
   return (
     <View style={styles.container}>
@@ -75,45 +151,32 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear }, ref) => {
         onLayout={(event) => {
           const { width, height } = event.nativeEvent.layout;
           console.log('📐 Canvas container size:', width, 'x', height);
+          setContainerSize({ width, height });
         }}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
       >
-        <View 
-          style={styles.touchLayer}
-          {...panResponder.panHandlers}
-          onTouchStart={() => console.log('👆 Touch layer - touch start')}
-        >
-          <Canvas 
-            style={styles.canvas}
-          >
-          {/* Render all saved paths */}
-          {paths.map((p, index) => (
-            <Path
-              key={`path-${index}`}
-              path={p.path}
-              color={p.color}
-              style="stroke"
-              strokeWidth={p.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-            />
-          ))}
-          {/* Render current path being drawn */}
-          {currentPathRef.current && (
-            <Path
-              path={currentPathRef.current.path}
-              color={currentPathRef.current.color}
-              style="stroke"
-              strokeWidth={currentPathRef.current.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-            />
-          )}
-          </Canvas>
-        </View>
+        <Canvas 
+          ref={handleCanvas}
+          style={styles.canvas}
+        />
       </View>
       
       <View style={styles.toolbar}>
-        <TouchableOpacity style={styles.clearButton} onPress={onClear}>
+        <TouchableOpacity 
+          style={styles.clearButton} 
+          onPress={() => {
+            console.log(`🧹 Clear button pressed - ${Platform.OS}`);
+            // Clear the canvas
+            if (canvasRef.current) {
+              const ctx = canvasRef.current.getContext('2d');
+              ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+              console.log('🧹 Canvas cleared!');
+            }
+            onClear && onClear();
+          }}
+        >
           <Text style={styles.clearButtonText}>🗑️ Clear</Text>
         </TouchableOpacity>
         <Text style={styles.hint}>Draw your solution above</Text>
@@ -130,18 +193,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden', // Prevent scroll bounce
   },
   canvasContainer: {
-    flex: 1,
+    flex: 5, // Increased from 1 to give more space to canvas
     backgroundColor: '#ffffff',
     borderRadius: 12,
     borderWidth: 2,
     borderColor: '#e5e7eb',
     overflow: 'hidden',
-    marginBottom: 10,
-  },
-  touchLayer: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
+    marginBottom: 5, // Reduced from 10 to maximize canvas height
   },
   canvas: {
     flex: 1,
@@ -152,7 +210,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: 8, // Reduced from 10 to give more space to canvas
   },
   clearButton: {
     backgroundColor: '#ef4444',

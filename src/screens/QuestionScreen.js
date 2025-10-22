@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     color: '#6b7280',
   },
   whiteboardContainer: {
-    flex: 1,
+    flex: 2, // Increased from 1 to give more vertical space to canvas
     marginHorizontal: 15,
     marginBottom: 10,
     overflow: 'hidden',
