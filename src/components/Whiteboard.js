@@ -13,10 +13,11 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
   modeRef.current = mode;
   
   // Helper function to check if a point is near a path
-  const isPointNearPath = (x, y, path, threshold = 30) => {
+  const isPointNearPath = (x, y, path, threshold = 60) => {
     try {
       const pathBounds = path.getBounds();
-      // Simple check: if point is within the bounding box plus threshold
+      // Increased threshold for more sensitive erasing
+      // Check if point is within the bounding box plus a larger threshold
       if (
         x >= pathBounds.x - threshold &&
         x <= pathBounds.x + pathBounds.width + threshold &&
