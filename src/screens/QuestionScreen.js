@@ -26,6 +26,7 @@ export default function QuestionScreen({ route, navigation }) {
   const [showHint, setShowHint] = useState(false);
   const [hintLoading, setHintLoading] = useState(false);
   const [hint, setHint] = useState('');
+  const [whiteboardMode, setWhiteboardMode] = useState('draw');
 
   // Load question on mount
   useEffect(() => {
@@ -185,6 +186,8 @@ export default function QuestionScreen({ route, navigation }) {
           paths={paths}
           onPathsChange={setPaths}
           onClear={handleClear}
+          mode={whiteboardMode}
+          onModeChange={setWhiteboardMode}
         />
       </View>
 

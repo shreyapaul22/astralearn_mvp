@@ -2,13 +2,34 @@ import React, { useState, forwardRef, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, PanResponder } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
 
-const Whiteboard = forwardRef(({ paths, onPathsChange, onClear }, ref) => {
+const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', onModeChange }, ref) => {
   const currentPathRef = useRef(null);
   const pathsRef = useRef(paths); // Keep track of latest paths
+  const modeRef = useRef(mode); // Keep track of current mode
   const [, forceUpdate] = useState(0); // Force re-render counter
-
-  // Update pathsRef whenever paths change
+  
+  // Update refs whenever they change
   pathsRef.current = paths;
+  modeRef.current = mode;
+  
+  // Helper function to check if a point is near a path
+  const isPointNearPath = (x, y, path, threshold = 15) => {
+    try {
+      const pathBounds = path.getBounds();
+      // Small threshold for precise erasing - only erase where touched
+      if (
+        x >= pathBounds.x - threshold &&
+        x <= pathBounds.x + pathBounds.width + threshold &&
+        y >= pathBounds.y - threshold &&
+        y <= pathBounds.y + pathBounds.height + threshold
+      ) {
+        return true;
+      }
+    } catch (e) {
+      console.log('Error checking path bounds:', e);
+    }
+    return false;
+  };
 
   // PanResponder for touch handling (onTouch not working in this Skia version)
   const panResponder = useRef(
@@ -25,22 +46,45 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear }, ref) => {
       onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderGrant: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        console.log('🎨 Starting new path at:', locationX, locationY);
-        console.log('🎨 Current saved paths:', pathsRef.current.length);
+        const currentMode = modeRef.current;
+        console.log(`🎨 Starting ${currentMode} at:`, locationX, locationY);
         
-        const path = Skia.Path.Make();
-        path.moveTo(locationX, locationY);
-        currentPathRef.current = {
-          path,
-          color: '#000000',
-          strokeWidth: 3,
-        };
-        forceUpdate(prev => prev + 1);
+        if (currentMode === 'erase') {
+          // Find and remove paths near the touch point
+          const remainingPaths = pathsRef.current.filter((p, index) => {
+            const isNear = isPointNearPath(locationX, locationY, p.path);
+            if (isNear) {
+              console.log(`🗑️ Erasing path ${index}`);
+            }
+            return !isNear;
+          });
+          onPathsChange(remainingPaths);
+        } else {
+          // Draw mode - create new path
+          const path = Skia.Path.Make();
+          path.moveTo(locationX, locationY);
+          currentPathRef.current = {
+            path,
+            color: '#000000',
+            strokeWidth: 3,
+          };
+          forceUpdate(prev => prev + 1);
+        }
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
+        const currentMode = modeRef.current;
         
-        if (currentPathRef.current) {
+        if (currentMode === 'erase') {
+          // Continue erasing paths as user moves
+          const remainingPaths = pathsRef.current.filter((p) => {
+            return !isPointNearPath(locationX, locationY, p.path);
+          });
+          if (remainingPaths.length !== pathsRef.current.length) {
+            onPathsChange(remainingPaths);
+          }
+        } else if (currentPathRef.current) {
+          // Draw mode - continue drawing
           currentPathRef.current.path.lineTo(locationX, locationY);
           forceUpdate(prev => prev + 1);
         }
@@ -113,10 +157,29 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear }, ref) => {
       </View>
       
       <View style={styles.toolbar}>
+        <View style={styles.toolButtons}>
+          <TouchableOpacity 
+            style={[styles.toolButton, mode === 'draw' && styles.activeToolButton]} 
+            onPress={() => onModeChange?.('draw')}
+          >
+            <Text style={[styles.toolButtonText, mode === 'draw' && styles.activeToolButtonText]}>
+              ✏️ Draw
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.toolButton, mode === 'erase' && styles.activeToolButton]} 
+            onPress={() => onModeChange?.('erase')}
+          >
+            <Text style={[styles.toolButtonText, mode === 'erase' && styles.activeToolButtonText]}>
+              🧹 Erase
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
         <TouchableOpacity style={styles.clearButton} onPress={onClear}>
-          <Text style={styles.clearButtonText}>🗑️ Clear</Text>
+          <Text style={styles.clearButtonText}>🗑️ Clear All</Text>
         </TouchableOpacity>
-        <Text style={styles.hint}>Draw your solution above</Text>
       </View>
     </View>
   );
@@ -153,22 +216,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 10,
+    gap: 10,
+  },
+  toolButtons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  toolButton: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+  },
+  activeToolButton: {
+    backgroundColor: '#6366f1',
+    borderColor: '#4f46e5',
+  },
+  toolButtonText: {
+    color: '#6b7280',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  activeToolButtonText: {
+    color: '#fff',
   },
   clearButton: {
     backgroundColor: '#ef4444',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 8,
   },
   clearButtonText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  hint: {
-    color: '#6b7280',
     fontSize: 14,
-    fontStyle: 'italic',
+    fontWeight: '600',
   },
 });
 
