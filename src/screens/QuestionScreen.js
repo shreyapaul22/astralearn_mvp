@@ -10,7 +10,7 @@ import {
   Modal,
 } from 'react-native';
 import Whiteboard from '../components/Whiteboard';
-import { generateQuestion, verifyAnswer } from '../services/geminiService';
+import { generateQuestion, verifyAnswer, generateHint } from '../services/geminiService';
 import { canvasToBase64 } from '../utils/canvasToImage';
 
 export default function QuestionScreen({ route, navigation }) {
@@ -23,6 +23,9 @@ export default function QuestionScreen({ route, navigation }) {
   const [paths, setPaths] = useState([]);
   const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState(null);
+  const [showHint, setShowHint] = useState(false);
+  const [hintLoading, setHintLoading] = useState(false);
+  const [hint, setHint] = useState('');
 
   // Load question on mount
   useEffect(() => {
@@ -106,6 +109,8 @@ export default function QuestionScreen({ route, navigation }) {
     setShowResult(false);
     setResult(null);
     setPaths([]);
+    setShowHint(false);
+    setHint('');
     loadQuestion();
   };
 
@@ -113,6 +118,32 @@ export default function QuestionScreen({ route, navigation }) {
     setShowResult(false);
     setResult(null);
     setPaths([]);
+  };
+
+  const handleShowHint = async () => {
+    setHintLoading(true);
+    try {
+      // Capture canvas if there's any content
+      let canvasImage = null;
+      if (paths.length > 0 && whiteboardRef.current) {
+        try {
+          canvasImage = await captureCanvas();
+        } catch (error) {
+          console.log('Could not capture canvas, will provide general hint');
+        }
+      }
+      
+      const generatedHint = await generateHint(question, canvasImage);
+      setHint(generatedHint);
+      setShowHint(true);
+    } catch (error) {
+      Alert.alert(
+        'Error',
+        error.message || 'Failed to get hint. Please try again.'
+      );
+    } finally {
+      setHintLoading(false);
+    }
   };
 
   if (loading) {
@@ -160,25 +191,42 @@ export default function QuestionScreen({ route, navigation }) {
       {/* Action Buttons - Fixed at bottom */}
       <View style={styles.actionButtons}>
         <TouchableOpacity
-          style={[styles.button, styles.submitButton]}
-          onPress={handleSubmit}
-          disabled={verifying || paths.length === 0}
+          style={[styles.button, styles.hintButton]}
+          onPress={handleShowHint}
+          disabled={hintLoading}
         >
-          {verifying ? (
-            <ActivityIndicator color="#fff" />
+          {hintLoading ? (
+            <View style={styles.hintLoadingContainer}>
+              <ActivityIndicator color="#6366f1" size="small" />
+              <Text style={styles.hintLoadingText}>Analyzing...</Text>
+            </View>
           ) : (
-            <Text style={styles.buttonText}>Submit Answer</Text>
+            <Text style={styles.hintButtonText}>💡 Get Hint</Text>
           )}
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.button, styles.newQuestionButton]}
-          onPress={handleNextQuestion}
-        >
-          <Text style={[styles.buttonText, styles.newQuestionButtonText]}>
-            New Question
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.primaryButtons}>
+          <TouchableOpacity
+            style={[styles.button, styles.submitButton]}
+            onPress={handleSubmit}
+            disabled={verifying || paths.length === 0}
+          >
+            {verifying ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Submit Answer</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.newQuestionButton]}
+            onPress={handleNextQuestion}
+          >
+            <Text style={[styles.buttonText, styles.newQuestionButtonText]}>
+              New Question
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Result Modal */}
@@ -226,6 +274,35 @@ export default function QuestionScreen({ route, navigation }) {
                 onPress={handleNextQuestion}
               >
                 <Text style={styles.buttonText}>Next Question</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Hint Modal */}
+      <Modal
+        visible={showHint}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowHint(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.hintHeader}>
+              <Text style={styles.hintHeaderText}>💡 Hint</Text>
+            </View>
+
+            <ScrollView style={styles.feedbackContainer}>
+              <Text style={styles.feedbackText}>{hint}</Text>
+            </ScrollView>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.button, styles.nextButton]}
+                onPress={() => setShowHint(false)}
+              >
+                <Text style={styles.buttonText}>Close</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -305,6 +382,32 @@ const styles = StyleSheet.create({
     paddingBottom: 15,
     gap: 10,
     backgroundColor: '#f5f5f5',
+  },
+  hintButton: {
+    backgroundColor: '#fef3c7',
+    padding: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fbbf24',
+  },
+  hintButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#92400e',
+  },
+  hintLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  hintLoadingText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#92400e',
+  },
+  primaryButtons: {
+    gap: 10,
   },
   button: {
     padding: 16,
@@ -398,6 +501,16 @@ const styles = StyleSheet.create({
   },
   nextButton: {
     backgroundColor: '#6366f1',
+  },
+  hintHeader: {
+    padding: 20,
+    backgroundColor: '#fef3c7',
+    alignItems: 'center',
+  },
+  hintHeaderText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#92400e',
   },
 });
 
