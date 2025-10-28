@@ -1,14 +1,18 @@
 import React, { useState, forwardRef, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, PanResponder } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, PanResponder, ScrollView, Dimensions } from 'react-native';
 import { Canvas, Path, Skia } from '@shopify/react-native-skia';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', onModeChange }, ref) => {
   const currentPathRef = useRef(null);
-  const pathsRef = useRef(paths); // Keep track of latest paths
-  const modeRef = useRef(mode); // Keep track of current mode
-  const [, forceUpdate] = useState(0); // Force re-render counter
+  const pathsRef = useRef(paths);
+  const modeRef = useRef(mode);
+  const scrollViewRef = useRef(null);
+  const [, forceUpdate] = useState(0);
+  const [scrollMode, setScrollMode] = useState(false);
+  const [contentHeight, setContentHeight] = useState(SCREEN_HEIGHT * 4);
   
-  // Update refs whenever they change
   pathsRef.current = paths;
   modeRef.current = mode;
   
@@ -16,7 +20,6 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
   const isPointNearPath = (x, y, path, threshold = 15) => {
     try {
       const pathBounds = path.getBounds();
-      // Small threshold for precise erasing - only erase where touched
       if (
         x >= pathBounds.x - threshold &&
         x <= pathBounds.x + pathBounds.width + threshold &&
@@ -31,26 +34,25 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
     return false;
   };
 
-  // PanResponder for touch handling (onTouch not working in this Skia version)
+  // PanResponder for touch handling - captures single finger for draw/erase (disabled in scroll mode)
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => {
-        console.log('🎨 Touch START detected');
-        return true;
+      onStartShouldSetPanResponder: (evt) => {
+        if (scrollMode) return false;
+        const touchCount = evt.nativeEvent.touches?.length || 0;
+        return touchCount === 1;
       },
-      onStartShouldSetPanResponderCapture: () => {
-        console.log('🎨 Touch START CAPTURE (iOS)');
-        return true;
-      },
-      onMoveShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
+      onStartShouldSetPanResponderCapture: () => !scrollMode,
+      onMoveShouldSetPanResponder: () => !scrollMode,
+      onMoveShouldSetPanResponderCapture: () => !scrollMode,
       onPanResponderGrant: (evt) => {
+        if (scrollMode) return;
         const { locationX, locationY } = evt.nativeEvent;
         const currentMode = modeRef.current;
-        console.log(`🎨 Starting ${currentMode} at:`, locationX, locationY);
+        
+        console.log(`🎨 Starting ${currentMode}`);
         
         if (currentMode === 'erase') {
-          // Find and remove paths near the touch point
           const remainingPaths = pathsRef.current.filter((p, index) => {
             const isNear = isPointNearPath(locationX, locationY, p.path);
             if (isNear) {
@@ -60,7 +62,6 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
           });
           onPathsChange(remainingPaths);
         } else {
-          // Draw mode - create new path
           const path = Skia.Path.Make();
           path.moveTo(locationX, locationY);
           currentPathRef.current = {
@@ -72,11 +73,12 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
         }
       },
       onPanResponderMove: (evt) => {
+        if (scrollMode) return;
+        
         const { locationX, locationY } = evt.nativeEvent;
         const currentMode = modeRef.current;
         
         if (currentMode === 'erase') {
-          // Continue erasing paths as user moves
           const remainingPaths = pathsRef.current.filter((p) => {
             return !isPointNearPath(locationX, locationY, p.path);
           });
@@ -84,14 +86,12 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
             onPathsChange(remainingPaths);
           }
         } else if (currentPathRef.current) {
-          // Draw mode - continue drawing
           currentPathRef.current.path.lineTo(locationX, locationY);
           forceUpdate(prev => prev + 1);
         }
       },
       onPanResponderRelease: () => {
-        console.log('🎨 Ending path, total paths will be:', pathsRef.current.length + 1);
-        
+        if (scrollMode) return;
         if (currentPathRef.current) {
           onPathsChange([...pathsRef.current, currentPathRef.current]);
           currentPathRef.current = null;
@@ -99,16 +99,16 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
         }
       },
       onPanResponderTerminate: () => {
+        if (scrollMode) return;
         if (currentPathRef.current) {
           onPathsChange([...pathsRef.current, currentPathRef.current]);
           currentPathRef.current = null;
           forceUpdate(prev => prev + 1);
         }
       },
-      onPanResponderTerminationRequest: () => false,
-      onShouldBlockNativeResponder: () => true,
-    })
-  ).current;
+      onShouldBlockNativeResponder: () => !scrollMode,
+      })
+    ).current;
 
   return (
     <View style={styles.container}>
@@ -116,69 +116,92 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
         style={styles.canvasContainer} 
         ref={ref} 
         collapsable={false}
-        onLayout={(event) => {
-          const { width, height } = event.nativeEvent.layout;
-          console.log('📐 Canvas container size:', width, 'x', height);
-        }}
       >
-        <View 
-          style={styles.touchLayer}
-          {...panResponder.panHandlers}
-          onTouchStart={() => console.log('👆 Touch layer - touch start')}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { height: contentHeight }]}
+          showsVerticalScrollIndicator={scrollMode}
+          scrollEnabled={scrollMode}
+          nestedScrollEnabled={false}
+          bounces={false}
+          contentInsetAdjustmentBehavior="never"
+          scrollEventThrottle={16}
+          onScroll={(e) => {
+            const y = e.nativeEvent.contentOffset.y;
+            const viewH = e.nativeEvent.layoutMeasurement.height;
+            const contentH = e.nativeEvent.contentSize.height;
+            // auto-extend near bottom for unlimited scroll
+            if (scrollMode && y + viewH > contentH - 80) {
+              setContentHeight(prev => prev + SCREEN_HEIGHT * 2);
+            }
+          }}
         >
-          <Canvas 
-            style={styles.canvas}
+          <View 
+            style={[styles.canvasWrapper, { minHeight: contentHeight }]} 
+            collapsable={false}
+            pointerEvents="box-only"
+            {...(!scrollMode ? panResponder.panHandlers : {})}
           >
-          {/* Render all saved paths */}
-          {paths.map((p, index) => (
-            <Path
-              key={`path-${index}`}
-              path={p.path}
-              color={p.color}
-              style="stroke"
-              strokeWidth={p.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-            />
-          ))}
-          {/* Render current path being drawn */}
-          {currentPathRef.current && (
-            <Path
-              path={currentPathRef.current.path}
-              color={currentPathRef.current.color}
-              style="stroke"
-              strokeWidth={currentPathRef.current.strokeWidth}
-              strokeCap="round"
-              strokeJoin="round"
-            />
-          )}
-          </Canvas>
-        </View>
+            <Canvas style={styles.canvas}>
+              {paths.map((p, index) => (
+                <Path
+                  key={`path-${index}`}
+                  path={p.path}
+                  color={p.color}
+                  style="stroke"
+                  strokeWidth={p.strokeWidth}
+                  strokeCap="round"
+                  strokeJoin="round"
+                />
+              ))}
+              {currentPathRef.current && (
+                <Path
+                  path={currentPathRef.current.path}
+                  color={currentPathRef.current.color}
+                  style="stroke"
+                  strokeWidth={currentPathRef.current.strokeWidth}
+                  strokeCap="round"
+                  strokeJoin="round"
+                />
+              )}
+            </Canvas>
+          </View>
+        </ScrollView>
       </View>
       
       <View style={styles.toolbar}>
         <View style={styles.toolButtons}>
           <TouchableOpacity 
-            style={[styles.toolButton, mode === 'draw' && styles.activeToolButton]} 
-            onPress={() => onModeChange?.('draw')}
+            style={[styles.toolButton, mode === 'draw' && !scrollMode && styles.activeToolButton]} 
+            onPress={() => { setScrollMode(false); onModeChange?.('draw'); }}
           >
-            <Text style={[styles.toolButtonText, mode === 'draw' && styles.activeToolButtonText]}>
+            <Text style={[styles.toolButtonText, mode === 'draw' && !scrollMode && styles.activeToolButtonText]}>
               ✏️ Draw
             </Text>
           </TouchableOpacity>
           
           <TouchableOpacity 
-            style={[styles.toolButton, mode === 'erase' && styles.activeToolButton]} 
-            onPress={() => onModeChange?.('erase')}
+            style={[styles.toolButton, mode === 'erase' && !scrollMode && styles.activeToolButton]} 
+            onPress={() => { setScrollMode(false); onModeChange?.('erase'); }}
           >
-            <Text style={[styles.toolButtonText, mode === 'erase' && styles.activeToolButtonText]}>
+            <Text style={[styles.toolButtonText, mode === 'erase' && !scrollMode && styles.activeToolButtonText]}>
               🧹 Erase
             </Text>
           </TouchableOpacity>
         </View>
         
+        <TouchableOpacity 
+          style={[styles.toolButton, scrollMode && styles.activeToolButton]} 
+          onPress={() => setScrollMode(prev => !prev)}
+        >
+          <Text style={[styles.toolButtonText, scrollMode && styles.activeToolButtonText]}>
+            {scrollMode ? '🧭 Scrolling' : '🧭 Scroll'}
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.clearButton} onPress={onClear}>
-          <Text style={styles.clearButtonText}>🗑️ Clear All</Text>
+          <Text style={styles.clearButtonText}>🗑️ Clear</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -190,7 +213,7 @@ export default Whiteboard;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    overflow: 'hidden', // Prevent scroll bounce
+    overflow: 'hidden',
   },
   canvasContainer: {
     flex: 1,
@@ -201,13 +224,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     marginBottom: 10,
   },
-  touchLayer: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     width: '100%',
-    height: '100%',
+  },
+  canvasWrapper: {
+    width: '100%',
+    backgroundColor: '#ffffff',
   },
   canvas: {
-    flex: 1,
     width: '100%',
     height: '100%',
   },
@@ -254,4 +281,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-
