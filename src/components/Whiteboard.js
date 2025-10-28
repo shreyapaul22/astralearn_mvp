@@ -119,6 +119,7 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
           bounces={false}
           contentInsetAdjustmentBehavior="never"
           scrollEventThrottle={16}
+          pointerEvents={scrollMode ? 'auto' : 'none'}
           onScroll={(e) => {
             const y = e.nativeEvent.contentOffset.y;
             const viewH = e.nativeEvent.layoutMeasurement.height;
@@ -132,7 +133,7 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
           <View 
             style={[styles.canvasWrapper, { minHeight: contentHeight }]} 
             collapsable={false}
-            pointerEvents="box-only"
+            pointerEvents={scrollMode ? 'auto' : 'none'}
           >
             <Canvas style={styles.canvas}>
               {paths.map((p, index) => (
@@ -157,17 +158,17 @@ const Whiteboard = forwardRef(({ paths, onPathsChange, onClear, mode = 'draw', o
                 />
               )}
             </Canvas>
-            {/* Transparent touch layer overlay for iOS compatibility */}
-            {!scrollMode && (
-              <View 
-                style={styles.touchOverlay}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-              />
-            )}
           </View>
         </ScrollView>
+        {/* Transparent touch layer overlay for iOS compatibility - OUTSIDE ScrollView */}
+        {!scrollMode && (
+          <View 
+            style={styles.touchOverlay}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+          />
+        )}
       </View>
       
       <View style={styles.toolbar}>
